@@ -2,8 +2,10 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"net/http"
+	"os"
 
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
@@ -89,5 +91,11 @@ func main() {
 		protected.DELETE("/polls/:id", handlers.DeletePoll)
 	}
 
-	router.Run(":8080")
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+	}
+	addr := fmt.Sprintf("0.0.0.0:%s", port)
+	log.Printf("Server starting on %s", addr)
+	router.Run(addr)
 }

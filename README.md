@@ -206,8 +206,31 @@ The Analytics page (`/analytics/:id`) is accessible exclusively to the poll crea
 
 ---
 
-## 15. Screenshots
-*Note: Screenshots can be captured and added to this section before final submission.*
+## 📸 Screenshots
+
+### Home Page
+![QuickPoll Home](screenshots/home.png)
+
+### Register
+![Register](screenshots/register.png)
+
+### Login
+![Login](screenshots/login.png)
+
+### Dashboard
+![Dashboard](screenshots/dashboard.png)
+
+### Create Poll
+![Create Poll](screenshots/createpoll.png)
+
+### Live Poll
+![Live Poll](screenshots/pollview.png)
+
+### Analytics
+![Analytics](screenshots/analytics.png)
+
+### QR Code Sharing
+![QR Code](screenshots/QR.png)
 
 ---
 

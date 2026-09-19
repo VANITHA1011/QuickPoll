@@ -3,199 +3,53 @@ import { useParams, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { QRCodeSVG } from 'qrcode.react';
 import { getPollUrl } from '../utils/url';
+import { fetchApi } from '../utils/apiClient';
+import { Badge } from '../components/ui/Badge';
+import { Modal } from '../components/ui/Modal';
+import { Button } from '../components/ui/Button';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080';
 const WS_URL = API_URL.replace(/^http/, 'ws');
 
-/* ── helper: deterministic colour from username ── */
 const AVATAR_COLORS = [
   '#6c5ce7', '#00b894', '#fd79a8', '#0984e3',
   '#e17055', '#fdcb6e', '#00cec9', '#a29bfe',
   '#55efc4', '#fab1a0',
 ];
+
 function avatarColor(name = '') {
   let h = 0;
   for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) & 0xffffffff;
   return AVATAR_COLORS[Math.abs(h) % AVATAR_COLORS.length];
 }
 
-/* ── "time ago" label ── */
-function timeAgo(dateStr) {
-  if (!dateStr) return '';
-  const d = new Date(dateStr);
-  if (isNaN(d)) return '';
-  const diff = (Date.now() - d.getTime()) / 1000; // seconds
-  if (diff < 60) return 'just now';
-  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
-  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
-  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-}
-
-/* ── Avatar circle ── */
 function Avatar({ name, size = 30, style = {} }) {
   const bg = avatarColor(name);
   return (
-    <div style={{
-      width: size, height: size, borderRadius: '50%',
-      background: bg, color: '#fff',
-      display: 'flex', alignItems: 'center', justifyContent: 'center',
-      fontSize: size * 0.42, fontWeight: 700,
-      flexShrink: 0,
-      ...style,
-    }} title={name}>
+    <div
+      style={{
+        width: size,
+        height: size,
+        borderRadius: '50%',
+        background: bg,
+        color: '#fff',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        fontSize: size * 0.42,
+        fontWeight: 700,
+        flexShrink: 0,
+        ...style,
+      }}
+      title={name}
+    >
       {(name || '?').charAt(0).toUpperCase()}
     </div>
   );
 }
 
-/* ── Voter Modal ── */
-function VoterModal({ option, onClose }) {
-  const overlayRef = useRef(null);
-  const voters = option?.voters || [];
-
-  // close on backdrop click
-  const handleOverlayClick = (e) => {
-    if (e.target === overlayRef.current) onClose();
-  };
-
-  useEffect(() => {
-    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
-
-  return (
-    <div
-      ref={overlayRef}
-      onClick={handleOverlayClick}
-      style={{
-        position: 'fixed', inset: 0, zIndex: 1000,
-        background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)',
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        padding: '16px',
-      }}
-    >
-      <div style={{
-        background: 'var(--bg-secondary)', borderRadius: '16px',
-        width: '100%', maxWidth: '420px',
-        boxShadow: '0 20px 60px rgba(0,0,0,0.5)',
-        overflow: 'hidden',
-        border: '1px solid var(--border)',
-      }}>
-        {/* Header */}
-        <div style={{
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          padding: '18px 20px', borderBottom: '1px solid var(--border)',
-        }}>
-          <div>
-            <p style={{ margin: 0, fontSize: '11px', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-              Voted for
-            </p>
-            <h3 style={{ margin: 0, fontSize: '17px', fontWeight: 700 }}>
-              {option?.text}
-            </h3>
-          </div>
-        </div>
-
-        {/* Voter list */}
-        <div style={{ maxHeight: '380px', overflowY: 'auto', padding: '8px 0' }}>
-          {voters.length === 0 ? (
-            <p style={{ textAlign: 'center', color: 'var(--text-secondary)', padding: '24px', margin: 0 }}>
-              No votes yet
-            </p>
-          ) : (
-            voters.map((v, idx) => {
-              const name = typeof v === 'string' ? v : v.username;
-              return (
-                <div key={idx} style={{
-                  display: 'flex', alignItems: 'center', gap: '14px',
-                  padding: '12px 20px',
-                  borderBottom: idx < voters.length - 1 ? '1px solid var(--border)' : 'none',
-                  transition: 'background 0.15s',
-                }}
-                  onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.04)'}
-                  onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-                >
-                  <Avatar name={name} size={42} />
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <p style={{ margin: 0, fontWeight: 600, fontSize: '15px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      {name}
-                    </p>
-                  </div>
-                </div>
-              );
-            })
-          )}
-        </div>
-
-        {/* Footer */}
-        <div style={{ padding: '14px 20px', borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>
-            {voters.length} {voters.length === 1 ? 'vote' : 'votes'}
-          </div>
-          <button onClick={onClose} style={{
-            background: 'none', border: '1px solid var(--border)', color: 'var(--text)',
-            padding: '8px 24px', borderRadius: '8px', cursor: 'pointer', fontSize: '14px',
-            transition: 'background 0.2s',
-          }}
-            onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.06)'}
-            onMouseLeave={e => e.currentTarget.style.background = 'none'}
-          >
-            Close
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/* ── QR Code Modal ── */
-function QRModal({ url, onClose }) {
-  return (
-    <div
-      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
-      style={{
-        position: 'fixed', inset: 0, zIndex: 1000,
-        background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)',
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        padding: '16px',
-      }}
-    >
-      <div style={{
-        background: 'var(--bg-secondary)', borderRadius: '16px',
-        width: '100%', maxWidth: '320px',
-        boxShadow: '0 20px 60px rgba(0,0,0,0.5)',
-        overflow: 'hidden',
-        border: '1px solid var(--border)',
-        textAlign: 'center', padding: '24px'
-      }}>
-        <h3 style={{ margin: '0 0 8px 0', fontSize: '20px', color: 'var(--primary)', fontWeight: 'bold', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
-          ⚡ QuickPoll
-        </h3>
-        <p style={{ margin: '0 0 24px 0', color: 'var(--text-secondary)', fontSize: '14px' }}>Scan to vote</p>
-        
-        <div style={{ background: 'white', padding: '16px', borderRadius: '12px', display: 'inline-block', marginBottom: '24px' }}>
-          <QRCodeSVG value={url} size={200} />
-        </div>
-        
-        <button onClick={onClose} style={{
-          width: '100%', background: 'none', border: '1px solid var(--border)', color: 'var(--text)',
-          padding: '10px', borderRadius: '8px', cursor: 'pointer', fontSize: '15px',
-          transition: 'background 0.2s',
-        }}
-          onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.06)'}
-          onMouseLeave={e => e.currentTarget.style.background = 'none'}
-        >
-          Close
-        </button>
-      </div>
-    </div>
-  );
-}
-
-/* ── Stacked avatars shown next to vote count ── */
 function StackedAvatars({ voters = [], max = 3, onClick }) {
-  const names = voters.map(v => typeof v === 'string' ? v : v.username);
+  const names = voters.map(v => (typeof v === 'string' ? v : v.username));
   const visible = names.slice(0, max);
   const extra = names.length - max;
   if (names.length === 0) return null;
@@ -213,21 +67,30 @@ function StackedAvatars({ voters = [], max = 3, onClick }) {
           size={26}
           style={{
             marginLeft: idx > 0 ? '-8px' : 0,
-            border: '2px solid var(--bg-secondary)',
+            border: '2px solid var(--bg-card)',
             zIndex: max - idx,
             boxShadow: '0 1px 4px rgba(0,0,0,0.3)',
           }}
         />
       ))}
       {extra > 0 && (
-        <div style={{
-          width: 26, height: 26, borderRadius: '50%',
-          background: 'rgba(255,255,255,0.15)', color: '#fff',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          fontSize: '10px', fontWeight: 700,
-          marginLeft: '-8px', border: '2px solid var(--bg-secondary)',
-          zIndex: 0,
-        }}>
+        <div
+          style={{
+            width: 26,
+            height: 26,
+            borderRadius: '50%',
+            background: 'rgba(255,255,255,0.15)',
+            color: '#fff',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            fontSize: '10px',
+            fontWeight: 700,
+            marginLeft: '-8px',
+            border: '2px solid var(--bg-card)',
+            zIndex: 0,
+          }}
+        >
           +{extra}
         </div>
       )}
@@ -235,52 +98,77 @@ function StackedAvatars({ voters = [], max = 3, onClick }) {
   );
 }
 
-/* ══════════════════════════════════════════════
-   Main Poll component
-══════════════════════════════════════════════ */
 function Poll() {
   const { id } = useParams();
   const [poll, setPoll] = useState(null);
   const [selectedOption, setSelectedOption] = useState('');
   const [loading, setLoading] = useState(true);
+  const [submittingVote, setSubmittingVote] = useState(false);
   const [error, setError] = useState('');
   const [hasVoted, setHasVoted] = useState(false);
   const [voteMessage, setVoteMessage] = useState('');
-  const [modalOption, setModalOption] = useState(null); // option shown in modal
-  const [showQRModal, setShowQRModal] = useState(false);
+  const [modalOption, setModalOption] = useState(null);
+  const [showShareModal, setShowShareModal] = useState(false);
+  const [copiedLink, setCopiedLink] = useState(false);
+  const [latestActivity, setLatestActivity] = useState(null);
+  const [timeLeft, setTimeLeft] = useState(null);
+
   const { user, token } = useAuth();
+  const pollRef = useRef(null);
 
-  // Keep a ref to the latest poll so the WS handler always reads current state
-  // without the WS effect needing to re-run every time poll changes.
-  const pollReady = useRef(false);
+  // Expiration countdown
+  useEffect(() => {
+    if (!poll?.expires_at) return;
 
-  /* ── initial fetch ── */
+    const calculateRemaining = () => {
+      const diff = new Date(poll.expires_at) - new Date();
+      if (diff <= 0) {
+        setTimeLeft('Expired');
+        setPoll(prev => prev ? { ...prev, status: 'CLOSED' } : prev);
+        return;
+      }
+
+      const hours = Math.floor(diff / (1000 * 60 * 60));
+      const mins = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+      const secs = Math.floor((diff % (1000 * 60)) / 1000);
+
+      if (hours > 24) {
+        const days = Math.floor(hours / 24);
+        setTimeLeft(`${days}d ${hours % 24}h remaining`);
+      } else if (hours > 0) {
+        setTimeLeft(`${hours}h ${mins}m ${secs}s remaining`);
+      } else {
+        setTimeLeft(`${mins}m ${secs}s remaining`);
+      }
+    };
+
+    calculateRemaining();
+    const interval = setInterval(calculateRemaining, 1000);
+    return () => clearInterval(interval);
+  }, [poll?.expires_at]);
+
+  // Initial Fetch
   useEffect(() => {
     const fetchPollData = async () => {
       try {
-        const response = await fetch(`${API_URL}/api/polls/${id}`);
-        const data = await response.json();
-
-        if (response.ok) {
-          setPoll(data);
-          pollReady.current = true;
-        } else {
-          setError(data.message || 'Poll not found');
-        }
+        const data = await fetchApi(`/api/polls/${id}`);
+        setPoll(data);
+        pollRef.current = data;
 
         if (token) {
-          const voteResponse = await fetch(`${API_URL}/api/polls/${id}/voted`, {
-            headers: { 'Authorization': `Bearer ${token}` }
-          });
-          const voteData = await voteResponse.json();
-          if (voteResponse.ok && voteData.has_voted) {
-            setHasVoted(true);
-            setSelectedOption(voteData.option_id);
-            setVoteMessage('You have already voted in this poll.');
+          try {
+            const voteData = await fetchApi(`/api/polls/${id}/voted`);
+            if (voteData && voteData.has_voted) {
+              setHasVoted(true);
+              setSelectedOption(voteData.option_id);
+              setVoteMessage("You have already voted in this poll.");
+            }
+          } catch (e) {
+            // Non-fatal if vote check fails
           }
         }
       } catch (err) {
-        setError('Unable to connect to server');
+        setError(err.message || 'Poll not found');
       } finally {
         setLoading(false);
       }
@@ -289,21 +177,23 @@ function Poll() {
     fetchPollData();
   }, [id, token]);
 
-  /* ── WebSocket live updates ── */
-  // Depend only on [id] so the socket is created once per poll page
-  // and never torn down/reopened due to poll state changes.
+  // WebSocket Live Updates
   useEffect(() => {
     const socket = new WebSocket(`${WS_URL}/api/ws/polls/${id}`);
-
-    socket.onopen = () => {
-      console.log('[WS] Connected for poll', id);
-    };
 
     socket.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
-        console.log('[WS] Event received:', data.poll_id, data.option_id, data.username);
         if (data.poll_id !== id) return;
+
+        // Activity banner ticker
+        const voterName = data.username || 'A voter';
+        const currentPoll = pollRef.current;
+        const votedOpt = currentPoll?.options?.find(o => o.id === data.option_id);
+        const optText = votedOpt ? `"${votedOpt.text}"` : 'an option';
+
+        setLatestActivity(`${voterName} just cast a vote for ${optText}`);
+        setTimeout(() => setLatestActivity(null), 4500);
 
         setPoll(prevPoll => {
           if (!prevPoll) return prevPoll;
@@ -313,8 +203,6 @@ function Poll() {
               const alreadyIn = currentVoters.some(v =>
                 (typeof v === 'string' ? v : v.username) === data.username
               );
-              // Only increment votes if this is a genuinely new voter
-              // (guards against double-count when voter's own re-fetch races with WS event)
               const updatedVoters = data.username && !alreadyIn
                 ? [...currentVoters, data.username]
                 : currentVoters;
@@ -323,194 +211,310 @@ function Poll() {
             }
             return opt;
           });
-          return { ...prevPoll, options: newOptions };
+          const updated = { ...prevPoll, options: newOptions };
+          pollRef.current = updated;
+          return updated;
         });
       } catch (err) {
         console.error('[WS] Failed to parse WebSocket message', err);
       }
     };
 
-    socket.onerror = (err) => {
-      console.error('[WS] WebSocket error:', err);
-    };
-
-    socket.onclose = () => {
-      console.log('[WS] Disconnected from poll', id);
-    };
-
     return () => socket.close();
   }, [id]);
 
-  /* ── vote submission ── */
   const handleVote = async () => {
-    if (!user) { setError('You must be logged in to vote'); return; }
-    if (!selectedOption) { setError('Please select an option'); return; }
+    if (!user) {
+      setError('You must be logged in to vote');
+      return;
+    }
+    if (!selectedOption) {
+      setError('Please select an option');
+      return;
+    }
 
+    setSubmittingVote(true);
     try {
-      const response = await fetch(`${API_URL}/api/polls/${id}/vote`, {
+      await fetchApi(`/api/polls/${id}/vote`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
         body: JSON.stringify({ option_id: selectedOption }),
       });
 
-      if (response.ok) {
-        setHasVoted(true);
-        setVoteMessage('Vote recorded successfully!');
-        // Re-fetch to get fresh voter list including self
-        const freshResp = await fetch(`http://localhost:8080/api/polls/${id}`);
-        if (freshResp.ok) {
-          const freshData = await freshResp.json();
-          setPoll(freshData);
-        }
-      } else {
-        const data = await response.json();
-        if (response.status === 409 || data.message?.includes('already voted')) {
-          setHasVoted(true);
-          setVoteMessage('You have already voted in this poll.');
-          setError('');
-        } else {
-          setError(data.message || 'Failed to record vote');
-        }
-      }
+      setHasVoted(true);
+      setVoteMessage('🎉 Vote recorded successfully!');
+
+      // Fresh re-fetch to ensure voter lists and counts sync
+      const freshData = await fetchApi(`/api/polls/${id}`);
+      setPoll(freshData);
+      pollRef.current = freshData;
     } catch (err) {
-      setError('Network error. Please try again later.');
+      if (err.message && err.message.toLowerCase().includes('already voted')) {
+        setHasVoted(true);
+        setVoteMessage('You have already voted in this poll.');
+        setError('');
+      } else {
+        setError(err.message || 'Failed to record vote');
+      }
+    } finally {
+      setSubmittingVote(false);
     }
   };
 
-  /* ── render states ── */
+  const copyShareLink = () => {
+    navigator.clipboard.writeText(getPollUrl(poll.id));
+    setCopiedLink(true);
+    setTimeout(() => setCopiedLink(false), 2500);
+  };
+
   if (loading) {
     return (
-      <div className="status-section" style={{ maxWidth: '600px', margin: '0 auto', textAlign: 'center' }}>
-        <p>Loading poll...</p>
+      <div style={{ maxWidth: '640px', margin: '60px auto', textAlign: 'center', color: 'var(--text-secondary)' }}>
+        <p>Loading live poll...</p>
       </div>
     );
   }
 
   if (error && !poll) {
     return (
-      <div className="status-section" style={{ maxWidth: '600px', margin: '0 auto', textAlign: 'center' }}>
-        <div style={{ padding: '12px', background: 'rgba(225, 112, 85, 0.1)', border: '1px solid var(--error)', color: 'var(--error)', borderRadius: '5px' }}>
+      <div style={{ maxWidth: '600px', margin: '40px auto', padding: '0 20px', textAlign: 'center' }}>
+        <div style={{ padding: '16px', background: 'rgba(225, 112, 85, 0.1)', border: '1px solid var(--error)', color: 'var(--error)', borderRadius: 'var(--radius-sm)' }}>
           {error}
         </div>
+        <Link to="/dashboard" style={{ display: 'inline-block', marginTop: '20px', color: 'var(--primary)' }}>
+          ← Back to Dashboard
+        </Link>
       </div>
     );
   }
 
-  const totalVotes = poll.options.reduce((sum, opt) => sum + opt.votes, 0);
-  // Show results if: user has voted, user is not logged in (public view),
-  // OR there are already votes (so creators/observers can watch live updates).
-  const showResults = hasVoted || !user || totalVotes > 0;
+  const isClosed = poll.status === 'CLOSED' || (poll.expires_at && new Date() > new Date(poll.expires_at));
+  const totalVotes = poll.options.reduce((sum, opt) => sum + (opt.votes || 0), 0);
+  const showResults = hasVoted || isClosed || !user || totalVotes > 0;
 
   return (
     <>
-      {/* Voter modal */}
+      {/* Voter List Modal */}
       {modalOption && (
-        <VoterModal option={modalOption} onClose={() => setModalOption(null)} />
+        <Modal
+          isOpen={Boolean(modalOption)}
+          onClose={() => setModalOption(null)}
+          title={`Voters for "${modalOption.text}"`}
+        >
+          <div style={{ maxHeight: '340px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            {(!modalOption.voters || modalOption.voters.length === 0) ? (
+              <p style={{ textAlign: 'center', color: 'var(--text-secondary)', padding: '20px 0' }}>No votes yet</p>
+            ) : (
+              modalOption.voters.map((v, idx) => {
+                const name = typeof v === 'string' ? v : v.username;
+                return (
+                  <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '8px', borderRadius: '6px' }}>
+                    <Avatar name={name} size={36} />
+                    <span style={{ fontWeight: 600, fontSize: '15px' }}>{name}</span>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </Modal>
       )}
 
-      {/* QR Code modal */}
-      {showQRModal && (
-        <QRModal 
-          url={getPollUrl(poll.id)} 
-          onClose={() => setShowQRModal(false)} 
-        />
-      )}
+      {/* Share Modal (Copy Link + QR Code) */}
+      <Modal
+        isOpen={showShareModal}
+        onClose={() => setShowShareModal(false)}
+        title="Share Live Poll"
+      >
+        <div style={{ textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '20px' }}>
+          <p style={{ fontSize: '14px', color: 'var(--text-secondary)', margin: 0 }}>
+            Invite voters to cast their ballot in real time.
+          </p>
 
-      <div className="status-section" style={{ maxWidth: '600px', margin: '0 auto', textAlign: 'left' }}>
-        <div className="status-card" style={{ padding: '30px' }}>
-          <h2 style={{ fontSize: '24px', marginBottom: '10px' }}>{poll.question}</h2>
-          
+          <div style={{ background: '#ffffff', padding: '16px', borderRadius: '12px', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}>
+            <QRCodeSVG value={getPollUrl(poll.id)} size={180} />
+          </div>
+
+          <div style={{ width: '100%', display: 'flex', gap: '8px' }}>
+            <input
+              type="text"
+              readOnly
+              value={getPollUrl(poll.id)}
+              style={{ fontSize: '13px', background: 'var(--bg-secondary)', border: '1px solid var(--border)' }}
+            />
+            <Button variant={copiedLink ? "secondary" : "primary"} onClick={copyShareLink} style={{ flexShrink: 0, minWidth: '100px' }}>
+              {copiedLink ? '✓ Copied' : 'Copy'}
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      <div style={{ maxWidth: '680px', width: '100%', margin: '0 auto', padding: '24px 20px' }}>
+        {/* Realtime Activity Notification Banner */}
+        {latestActivity && (
+          <div
+            className="animate-fade-in"
+            style={{
+              padding: '10px 16px',
+              marginBottom: '16px',
+              background: 'rgba(108, 92, 231, 0.12)',
+              border: '1px solid var(--primary)',
+              borderRadius: 'var(--radius-sm)',
+              color: 'var(--primary)',
+              fontSize: '14px',
+              fontWeight: 500,
+              display: 'flex',
+              alignItems: 'center',
+              gap: '10px',
+            }}
+          >
+            <span>⚡</span>
+            <span>{latestActivity}</span>
+          </div>
+        )}
+
+        <div className="card" style={{ padding: '32px' }}>
+          {/* Top Status Bar */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px', flexWrap: 'wrap', gap: '10px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              {isClosed ? (
+                <Badge variant="secondary">CLOSED / EXPIRED</Badge>
+              ) : (
+                <Badge variant="live" dot={true}>LIVE POLL</Badge>
+              )}
+              {poll.expires_at && (
+                <span style={{ fontSize: '13px', color: isClosed ? 'var(--error)' : 'var(--text-secondary)', fontWeight: 500 }}>
+                  ⏱️ {timeLeft || (isClosed ? 'Voting Closed' : 'Expiring')}
+                </span>
+              )}
+            </div>
+
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <Button variant="secondary" onClick={() => setShowShareModal(true)} style={{ padding: '6px 14px', fontSize: '13px' }}>
+                🔗 Share / QR
+              </Button>
+              {user && poll.creator_id === user.id && (
+                <Link to={`/analytics/${id}`} className="btn btn-secondary" style={{ padding: '6px 14px', fontSize: '13px' }}>
+                  📊 Analytics
+                </Link>
+              )}
+            </div>
+          </div>
+
+          <h1 style={{ fontSize: '24px', fontWeight: 700, marginBottom: '8px', lineHeight: 1.35 }}>
+            {poll.question}
+          </h1>
+
           {poll.created_by_username && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '20px', color: 'var(--text-secondary)', fontSize: '14px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '24px', color: 'var(--text-secondary)', fontSize: '13px' }}>
               <span>Created by</span>
               <Avatar name={poll.created_by_username} size={20} />
-              <span style={{ fontWeight: '500' }}>{poll.created_by_username}</span>
+              <strong style={{ color: 'var(--text)' }}>{poll.created_by_username}</strong>
+              <span>· {new Date(poll.created_at).toLocaleDateString()}</span>
             </div>
           )}
 
           {error && poll && (
-            <div style={{ padding: '12px', background: 'rgba(225, 112, 85, 0.1)', border: '1px solid var(--error)', color: 'var(--error)', borderRadius: '5px', marginBottom: '15px' }}>
+            <div style={{ padding: '12px', background: 'rgba(225, 112, 85, 0.1)', border: '1px solid var(--error)', color: 'var(--error)', borderRadius: 'var(--radius-sm)', marginBottom: '18px', fontSize: '14px' }}>
               {error}
             </div>
           )}
 
           {voteMessage && (
-            <div style={{ padding: '12px', background: 'rgba(0, 184, 148, 0.1)', border: '1px solid var(--success)', color: 'var(--success)', borderRadius: '5px', marginBottom: '15px' }}>
+            <div style={{ padding: '12px', background: 'rgba(0, 184, 148, 0.1)', border: '1px solid var(--success)', color: 'var(--success)', borderRadius: 'var(--radius-sm)', marginBottom: '18px', fontSize: '14px' }}>
               {voteMessage}
             </div>
           )}
 
-          {!user && !hasVoted && (
-            <div style={{ padding: '12px', background: 'rgba(108, 92, 231, 0.1)', border: '1px solid var(--primary)', color: 'var(--primary)', borderRadius: '5px', marginBottom: '15px', textAlign: 'center' }}>
-              <p style={{ margin: '0 0 10px 0' }}>Please login to vote.</p>
+          {!user && !hasVoted && !isClosed && (
+            <div style={{ padding: '14px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', marginBottom: '20px', textAlign: 'center' }}>
+              <p style={{ margin: '0 0 10px 0', fontSize: '14px', color: 'var(--text-secondary)' }}>
+                Please sign in to submit your vote in this poll.
+              </p>
               <div style={{ display: 'flex', gap: '10px', justifyContent: 'center' }}>
-                <Link to={`/login?redirect=/poll/${id}`} style={{ padding: '8px 16px', background: 'var(--primary)', color: 'white', borderRadius: '5px', textDecoration: 'none' }}>Login</Link>
-                <Link to={`/register?redirect=/poll/${id}`} style={{ padding: '8px 16px', background: 'var(--bg-secondary)', color: 'var(--text)', border: '1px solid var(--border)', borderRadius: '5px', textDecoration: 'none' }}>Register</Link>
+                <Link to={`/login?redirect=/poll/${id}`} className="btn btn-primary" style={{ padding: '8px 18px', fontSize: '14px' }}>
+                  Login
+                </Link>
+                <Link to={`/register?redirect=/poll/${id}`} className="btn btn-secondary" style={{ padding: '8px 18px', fontSize: '14px' }}>
+                  Register
+                </Link>
               </div>
             </div>
           )}
 
-          {/* Options list */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '20px' }}>
-            {poll.options.map(option => {
+          {isClosed && (
+            <div style={{ padding: '12px 16px', background: 'rgba(253, 203, 110, 0.15)', border: '1px solid rgba(253, 203, 110, 0.4)', borderRadius: 'var(--radius-sm)', marginBottom: '20px', fontSize: '14px', color: 'var(--text)' }}>
+              🔒 Voting on this poll is now closed. You can view the finalized results below.
+            </div>
+          )}
+
+          {/* Options & Results */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', marginBottom: '24px' }}>
+            {poll.options.map((option) => {
               const percentage = totalVotes > 0 ? Math.round((option.votes / totalVotes) * 100) : 0;
               const voters = option.voters || [];
+              const isSelected = selectedOption === option.id;
 
               return (
                 <label
                   key={option.id}
                   style={{
-                    display: 'flex', flexDirection: 'column',
-                    padding: '14px 16px',
-                    border: `1px solid ${selectedOption === option.id && !hasVoted ? 'var(--success)' : 'var(--border)'}`,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    padding: '16px',
                     borderRadius: 'var(--radius)',
-                    cursor: hasVoted || !user ? 'default' : 'pointer',
-                    background: 'var(--bg-secondary)',
-                    opacity: (!user && !hasVoted) ? 0.7 : 1,
+                    border: `1px solid ${isSelected && !hasVoted ? 'var(--primary)' : 'var(--border)'}`,
+                    background: isSelected && !hasVoted ? 'rgba(108, 92, 231, 0.04)' : 'var(--bg-secondary)',
+                    cursor: hasVoted || isClosed || !user ? 'default' : 'pointer',
+                    transition: 'border-color 0.2s, background 0.2s',
                     position: 'relative',
-                    transition: 'border-color 0.2s',
                   }}
                 >
-                  {/* Top row: radio + text | avatars + count */}
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
-                      <input
-                        type="radio"
-                        name="poll_option"
-                        value={option.id}
-                        checked={selectedOption === option.id}
-                        onChange={(e) => !hasVoted && user && setSelectedOption(e.target.value)}
-                        disabled={hasVoted || !user}
-                        style={{ margin: 0, width: '18px', height: '18px', accentColor: 'var(--success)' }}
-                      />
-                      <span style={{ fontWeight: '500', fontSize: '15px' }}>{option.text}</span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                      {!hasVoted && !isClosed && user && (
+                        <input
+                          type="radio"
+                          name="poll_option"
+                          value={option.id}
+                          checked={isSelected}
+                          onChange={() => setSelectedOption(option.id)}
+                          style={{ width: '18px', height: '18px', accentColor: 'var(--primary)', margin: 0 }}
+                        />
+                      )}
+                      <span style={{ fontWeight: 600, fontSize: '15px' }}>{option.text}</span>
                     </div>
 
-                    {/* Right side: stacked avatars + count (always show when results visible) */}
                     {showResults && (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                         {voters.length > 0 && (
-                          <StackedAvatars
-                            voters={voters}
-                            max={3}
-                            onClick={() => setModalOption(option)}
-                          />
+                          <StackedAvatars voters={voters} max={3} onClick={() => setModalOption(option)} />
                         )}
-                        <span style={{ fontWeight: '600', fontSize: '14px', color: 'var(--text)', minWidth: '14px', textAlign: 'right' }}>
-                          {option.votes}
+                        <span style={{ fontWeight: 700, fontSize: '14px', minWidth: '40px', textAlign: 'right' }}>
+                          {percentage}%
                         </span>
                       </div>
                     )}
                   </div>
 
-                  {/* Progress bar (always visible when results shown) */}
                   {showResults && (
-                    <div style={{ marginTop: '10px', paddingLeft: '32px' }}>
-                      <div style={{ width: '100%', height: '6px', background: 'var(--border)', borderRadius: '3px', overflow: 'hidden' }}>
-                        <div style={{ height: '100%', width: `${percentage}%`, background: 'var(--success)', transition: 'width 0.5s ease' }} />
+                    <div style={{ marginTop: '12px' }}>
+                      <div style={{ width: '100%', height: '8px', background: 'var(--border)', borderRadius: '4px', overflow: 'hidden' }}>
+                        <div
+                          style={{
+                            height: '100%',
+                            width: `${percentage}%`,
+                            background: isSelected ? 'var(--primary)' : 'var(--success)',
+                            borderRadius: '4px',
+                            transition: 'width 0.6s cubic-bezier(0.4, 0, 0.2, 1)',
+                          }}
+                        />
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '6px', fontSize: '12px', color: 'var(--text-secondary)' }}>
+                        <span>{option.votes} {option.votes === 1 ? 'vote' : 'votes'}</span>
+                        {voters.length > 0 && (
+                          <span onClick={() => setModalOption(option)} style={{ cursor: 'pointer', textDecoration: 'underline' }}>
+                            View voters
+                          </span>
+                        )}
                       </div>
                     </div>
                   )}
@@ -519,63 +523,25 @@ function Poll() {
             })}
           </div>
 
-          {/* Vote button */}
-          {!hasVoted && user && (
-            <button
-              type="button"
+          {/* Voting Action */}
+          {!hasVoted && !isClosed && user && (
+            <Button
+              variant="primary"
               onClick={handleVote}
-              className="btn-primary"
-              style={{ padding: '14px', fontSize: '15px' }}
+              disabled={submittingVote || !selectedOption}
+              style={{ width: '100%', padding: '14px', fontSize: '16px' }}
             >
-              Vote
-            </button>
+              {submittingVote ? 'Submitting Vote...' : 'Submit Vote 🗳️'}
+            </Button>
           )}
 
-          {/* Total votes + "View votes" hint */}
           {showResults && (
-            <div style={{ textAlign: 'center', marginTop: '16px' }}>
-              <span style={{ fontSize: '14px', color: 'var(--success)', fontWeight: '600' }}>
-                {totalVotes} total {totalVotes === 1 ? 'vote' : 'votes'}
-              </span>
-              {totalVotes > 0 && (
-                <span style={{ fontSize: '12px', color: 'var(--text-secondary)', marginLeft: '8px' }}>
-                  · tap the avatars to see who voted
-                </span>
-              )}
+            <div style={{ textAlign: 'center', marginTop: '20px', color: 'var(--text-secondary)', fontSize: '13px' }}>
+              <span>Total responses: <strong style={{ color: 'var(--text)' }}>{totalVotes}</strong></span>
+              <span style={{ margin: '0 8px' }}>·</span>
+              <span>Updates in real time via WebSockets</span>
             </div>
           )}
-
-          {/* Action Buttons: QR Code & Analytics */}
-          <div style={{ display: 'flex', gap: '10px', justifyContent: 'center', marginTop: '24px' }}>
-            <button
-              type="button"
-              onClick={() => setShowQRModal(true)}
-              style={{
-                padding: '10px 20px', background: 'var(--bg-secondary)', color: 'var(--text)',
-                border: '1px solid var(--border)', borderRadius: '8px', cursor: 'pointer',
-                fontSize: '14px', fontWeight: '500', transition: 'background 0.2s'
-              }}
-              onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.06)'}
-              onMouseLeave={e => e.currentTarget.style.background = 'var(--bg-secondary)'}
-            >
-              QR Code
-            </button>
-            {user && poll.creator_id === user.id && (
-              <Link
-                to={`/analytics/${id}`}
-                style={{
-                  padding: '10px 20px', background: 'var(--bg-secondary)', color: 'var(--text)',
-                  border: '1px solid var(--border)', borderRadius: '8px', textDecoration: 'none',
-                  fontSize: '14px', fontWeight: '500', display: 'flex', alignItems: 'center',
-                  transition: 'background 0.2s'
-                }}
-                onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.06)'}
-                onMouseLeave={e => e.currentTarget.style.background = 'var(--bg-secondary)'}
-              >
-                Analytics
-              </Link>
-            )}
-          </div>
         </div>
       </div>
     </>

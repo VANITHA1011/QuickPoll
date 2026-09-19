@@ -59,10 +59,29 @@ func main() {
 	// Apply CORS middleware
 	router.Use(corsMiddleware())
 
-	// Root health check endpoint (Keep unchanged)
+	// Root health check endpoint
 	router.GET("/", func(c *gin.Context) {
+		dbStatus := "disconnected"
+		if database.Client != nil {
+			err := database.Client.Ping(context.Background(), nil)
+			if err == nil {
+				dbStatus = "connected"
+			}
+		}
+
+		redisStatus := "disconnected"
+		if database.RedisClient != nil {
+			err := database.RedisClient.Ping(context.Background()).Err()
+			if err == nil {
+				redisStatus = "connected"
+			}
+		}
+
 		c.JSON(200, gin.H{
-			"message": "PulsePoll backend is running!",
+			"status":   "ok",
+			"service":  "quickpoll-api",
+			"database": dbStatus,
+			"redis":    redisStatus,
 		})
 	})
 

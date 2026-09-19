@@ -13,8 +13,9 @@ import (
 )
 
 type CreatePollRequest struct {
-	Question string   `json:"question"`
-	Options  []string `json:"options"`
+	Question  string   `json:"question"`
+	Options   []string `json:"options"`
+	ExpiresIn int      `json:"expires_in"` // in hours (e.g., 0 for no expiry, 1, 24, 168 for 7 days)
 }
 
 func CreatePoll(c *gin.Context) {
@@ -31,30 +32,40 @@ func CreatePoll(c *gin.Context) {
 	}
 
 	req.Question = strings.TrimSpace(req.Question)
-	if req.Question == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"message": "Question is required"})
+	if req.Question == "" || len(req.Question) > 200 {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": gin.H{"code": "INVALID_QUESTION", "message": "Question is required and must be under 200 characters"}})
 		return
 	}
 
-	if len(req.Options) < 2 {
-		c.JSON(http.StatusBadRequest, gin.H{"message": "At least 2 options are required"})
+	if len(req.Options) < 2 || len(req.Options) > 10 {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": gin.H{"code": "INVALID_OPTIONS_COUNT", "message": "Between 2 and 10 options are required"}})
 		return
 	}
 
 	var pollOptions []models.PollOption
 	for _, opt := range req.Options {
 		optStr := strings.TrimSpace(opt)
-		if optStr != "" {
-			pollOptions = append(pollOptions, models.PollOption{
-				ID:    bson.NewObjectID(),
-				Text:  optStr,
-				Votes: 0,
-			})
+		if optStr != "" && len(optStr) <= 100 {
+			// Prevent duplicates
+			isDuplicate := false
+			for _, existingOpt := range pollOptions {
+				if strings.EqualFold(existingOpt.Text, optStr) {
+					isDuplicate = true
+					break
+				}
+			}
+			if !isDuplicate {
+				pollOptions = append(pollOptions, models.PollOption{
+					ID:    bson.NewObjectID(),
+					Text:  optStr,
+					Votes: 0,
+				})
+			}
 		}
 	}
 
 	if len(pollOptions) < 2 {
-		c.JSON(http.StatusBadRequest, gin.H{"message": "At least 2 valid options are required"})
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": gin.H{"code": "INVALID_OPTIONS", "message": "At least 2 unique valid options are required"}})
 		return
 	}
 
@@ -63,17 +74,23 @@ func CreatePoll(c *gin.Context) {
 		CreatorID: userID.(string),
 		Question:  req.Question,
 		Options:   pollOptions,
+		Status:    "LIVE",
 		CreatedAt: time.Now().UTC(),
+	}
+
+	if req.ExpiresIn > 0 {
+		expiresAt := time.Now().UTC().Add(time.Duration(req.ExpiresIn) * time.Hour)
+		poll.ExpiresAt = &expiresAt
 	}
 
 	collection := database.GetCollection("polls")
 	_, err := collection.InsertOne(c.Request.Context(), poll)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"message": "Failed to create poll"})
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": gin.H{"code": "INTERNAL_ERROR", "message": "Failed to create poll"}})
 		return
 	}
 
-	c.JSON(http.StatusCreated, poll)
+	c.JSON(http.StatusCreated, gin.H{"success": true, "message": "Poll created successfully", "data": poll})
 }
 
 func GetPoll(c *gin.Context) {
@@ -90,6 +107,11 @@ func GetPoll(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"message": "Poll not found"})
 		return
+	}
+
+	// Dynamic expiration check
+	if poll.ExpiresAt != nil && time.Now().UTC().After(*poll.ExpiresAt) {
+		poll.Status = "CLOSED"
 	}
 
 	// Fetch votes to get voters

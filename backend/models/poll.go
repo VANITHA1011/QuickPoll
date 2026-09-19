@@ -19,5 +19,7 @@ type Poll struct {
 	CreatedByUsername string        `bson:"-" json:"created_by_username"`
 	Question          string        `bson:"question" json:"question"`
 	Options           []PollOption  `bson:"options" json:"options"`
+	Status            string        `bson:"status" json:"status"` // e.g. "LIVE", "CLOSED"
 	CreatedAt         time.Time     `bson:"created_at" json:"created_at"`
+	ExpiresAt         *time.Time    `bson:"expires_at,omitempty" json:"expires_at,omitempty"`
 }

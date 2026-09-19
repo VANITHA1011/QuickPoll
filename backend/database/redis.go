@@ -28,16 +28,15 @@ func ConnectRedis(ctx context.Context) error {
 		return fmt.Errorf("failed to connect to Redis: invalid REDIS_URL format")
 	}
 
-	// Ensure TLS SNI ServerName is set for Upstash / rediss:// TLS connections
+	// Ensure proper TLS configuration with SNI ServerName for Upstash / rediss:// URLs
 	if strings.HasPrefix(redisURL, "rediss://") || strings.Contains(redisURL, ".upstash.io") {
-		if opts.TLSConfig == nil {
-			opts.TLSConfig = &tls.Config{}
-		}
 		host, _, err := net.SplitHostPort(opts.Addr)
-		if err == nil && host != "" {
-			opts.TLSConfig.ServerName = host
-		} else if opts.Addr != "" && !strings.Contains(opts.Addr, ":") {
-			opts.TLSConfig.ServerName = opts.Addr
+		if err != nil || host == "" {
+			host = opts.Addr
+		}
+		opts.TLSConfig = &tls.Config{
+			ServerName: host,
+			MinVersion: tls.VersionTLS12,
 		}
 	}
 

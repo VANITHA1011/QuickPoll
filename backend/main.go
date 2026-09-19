@@ -47,7 +47,7 @@ func main() {
 
 	// Connect to Redis
 	if err := database.ConnectRedis(context.Background()); err != nil {
-		log.Fatal(err)
+		log.Println("Warning: Redis connection failed:", err)
 	}
 
 	// Start WebSocket Hub

@@ -4,6 +4,9 @@ import { useAuth } from '../context/AuthContext';
 import { QRCodeSVG } from 'qrcode.react';
 import { getPollUrl } from '../utils/url';
 
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080';
+const WS_URL = API_URL.replace(/^http/, 'ws');
+
 /* ── helper: deterministic colour from username ── */
 const AVATAR_COLORS = [
   '#6c5ce7', '#00b894', '#fd79a8', '#0984e3',
@@ -255,7 +258,7 @@ function Poll() {
   useEffect(() => {
     const fetchPollData = async () => {
       try {
-        const response = await fetch(`http://localhost:8080/api/polls/${id}`);
+        const response = await fetch(`${API_URL}/api/polls/${id}`);
         const data = await response.json();
 
         if (response.ok) {
@@ -266,7 +269,7 @@ function Poll() {
         }
 
         if (token) {
-          const voteResponse = await fetch(`http://localhost:8080/api/polls/${id}/voted`, {
+          const voteResponse = await fetch(`${API_URL}/api/polls/${id}/voted`, {
             headers: { 'Authorization': `Bearer ${token}` }
           });
           const voteData = await voteResponse.json();
@@ -290,7 +293,7 @@ function Poll() {
   // Depend only on [id] so the socket is created once per poll page
   // and never torn down/reopened due to poll state changes.
   useEffect(() => {
-    const socket = new WebSocket(`ws://localhost:8080/api/ws/polls/${id}`);
+    const socket = new WebSocket(`${WS_URL}/api/ws/polls/${id}`);
 
     socket.onopen = () => {
       console.log('[WS] Connected for poll', id);
@@ -344,7 +347,7 @@ function Poll() {
     if (!selectedOption) { setError('Please select an option'); return; }
 
     try {
-      const response = await fetch(`http://localhost:8080/api/polls/${id}/vote`, {
+      const response = await fetch(`${API_URL}/api/polls/${id}/vote`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

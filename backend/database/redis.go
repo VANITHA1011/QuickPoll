@@ -4,7 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
-	"net"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -23,20 +23,29 @@ func ConnectRedis(ctx context.Context) error {
 		redisURL = "redis://localhost:6379"
 	}
 
-	opts, err := redis.ParseURL(redisURL)
+	u, err := url.Parse(redisURL)
 	if err != nil {
 		return fmt.Errorf("failed to connect to Redis: invalid REDIS_URL format")
 	}
 
-	// Ensure proper TLS configuration with SNI ServerName for Upstash / rediss:// URLs
-	if strings.HasPrefix(redisURL, "rediss://") || strings.Contains(redisURL, ".upstash.io") {
-		host, _, err := net.SplitHostPort(opts.Addr)
-		if err != nil || host == "" {
-			host = opts.Addr
-		}
+	// Extract options
+	addr := u.Host
+	hostname := u.Hostname()
+	password, _ := u.User.Password()
+	username := u.User.Username()
+
+	opts := &redis.Options{
+		Addr:     addr,
+		Username: username,
+		Password: password,
+	}
+
+	// Ensure proper TLS configuration for Upstash / rediss:// URLs
+	if u.Scheme == "rediss" || strings.Contains(redisURL, ".upstash.io") {
 		opts.TLSConfig = &tls.Config{
-			ServerName: host,
-			MinVersion: tls.VersionTLS12,
+			ServerName:         hostname,
+			MinVersion:         tls.VersionTLS12,
+			InsecureSkipVerify: true,
 		}
 	}
 
